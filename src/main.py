@@ -1,5 +1,7 @@
 # Imports
 
+from functools import wraps
+from inspect import isawaitable
 from sanic import Sanic, json
 from sanic import response
 from sanic_ext import validate
@@ -8,20 +10,10 @@ from models.MessageType import MessageType
 from bot_handler import send_alert
 from models.TradingViewOrder import TradingViewOrder
 from settings import *
-
+from secret_hash import compareSecret, hashSecret
 # Create Sanicobject called app.
 app = Sanic(__name__)
 app.ctx.ib = IB()
-
-
-@app.before_server_start
-async def firstConnect(app, _):
-    status = await isConnected()
-    if not status:
-        try:
-            await app.ctx.ib.connectAsync(ib_host, ib_port, clientId=1)
-        except:
-            await send_alert('API failed to reconnect. Please verify.', MessageType.ERROR)
 
 
 async def checkConnect():
@@ -48,7 +40,42 @@ async def positions():
     return pos
 
 
-@app.route('/health-check')
+def authorized(maybe_func=None, *, isAdmin=False):
+    def decorator(f):
+        @wraps(f)
+        async def decorated_function(request, *args, **kwargs):
+            try:
+                reqBody = request.json
+
+                is_authorized = compareSecret(reqBody.get('secret'), isAdmin)
+
+                if is_authorized:
+                    response = f(request, *args, **kwargs)
+                    if isawaitable(response):
+                        response = await response
+                        return response
+                    else:
+                        return json({"status": "not_authorized"}, 403)
+                else:
+                    return json({"status": "not_authorized"}, 403)
+            except:
+                return json({"status": "not_authorized"}, 403)
+        return decorated_function
+    return decorator(maybe_func) if maybe_func else decorator
+
+
+@app.before_server_start
+async def firstConnect(app, _):
+    status = await isConnected()
+    if not status:
+        try:
+            await app.ctx.ib.connectAsync(ib_host, ib_port, clientId=1)
+        except:
+            await send_alert('API failed to reconnect. Please verify.', MessageType.ERROR)
+
+
+@app.route('/health-check', methods=['POST'])
+@authorized(isAdmin=True)
 async def connect(request):
     status = await isConnected()
     if not status:
@@ -61,6 +88,7 @@ async def connect(request):
 
 @app.route('/webhook', methods=['POST'])
 @validate(json=TradingViewOrder)
+@authorized
 async def webhook(request, body: TradingViewOrder):
     if request.method == 'POST':
         # send alert to channels
