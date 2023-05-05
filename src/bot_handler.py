@@ -15,45 +15,48 @@ async def send_alert(data, message_type: MessageType):
             message = format_message_tradingview(data)
         elif message_type == MessageType.CONFIRMATION:
             message = format_message_confirmation(data)
-        elif message_type == MessageType.ERROR:
-            message = format_message_error(data)
+        elif message_type == MessageType.ERROR or MessageType.INFO:
+            message = format_message(data, message_type)
         else:
             message = data
 
         async with bot:
-            await bot.send_message(text=message, chat_id=settings.channel_id)
+            await bot.send_message(text=message, chat_id=settings.channel_id, parse_mode='HTML')
 
 
 def format_message_tradingview(data: TradingViewOrder):
-    message = f'''--- ALERT - Order received ----
+    updown = '📈' if data.orderAction == 'BUY' else '📉'
+    message = f'''📣 📣 <strong>ALERT - Order received</strong> 📣 📣
     
-    Ticker: {data.ticker}
-    Quantity: {data.quantity}
-    Action: {data.orderAction}
-    Price: {data.price}
-    Order date: {data.orderDate.astimezone()}
-    Current position: {data.currentPositionSize}
-    Current position type: {data.currentPositionType}
-    '''
+Ticker: <i>{data.ticker}</i> 🎯
+Quantity: <i>{data.quantity}</i> 🧮
+Action: <i>{data.orderAction}</i>  {updown}
+Price: <i>{data.price}</i> 💵
+Order date: <i>{data.orderDate.astimezone()}</i> 📅
+Current position: <i>{data.currentPositionSize}</i>
+Current position type: <i>{data.currentPositionType}</i>
+'''
 
     return message
 
 
 def format_message_confirmation(data: Trade):
-    message = f'''+++ ALERT - Order filled +++
+    updown = '📈' if data.orderAction == 'BUY' else '📉'
+    message = f'''🔒 🔒 <strong>ALERT - Order filled</strong> 🔒 🔒
 
-    Ticker: {data.contract.localSymbol}
-    Quantity: {data.orderStatus.filled}
-    Action: {data.order.action}
-    Order date: {data.log[len(data.log) - 1].time.astimezone()}
-    Avg Price: {data.orderStatus.avgFillPrice}
-    '''
+Ticker: <i>{data.contract.localSymbol}</i> 🎯 
+Quantity: <i>{data.orderStatus.filled}</i> 🧮
+Action: <i>{data.order.action}</i> {updown}
+Order date: <i>{data.log[len(data.log) - 1].time.astimezone()}</i> 📅
+Avg Price: <i>{data.orderStatus.avgFillPrice}</i> 💵
+'''
 
     return message
 
 
-def format_message_error(data):
-    message = f''' !-!-!- ALERT - Error occurred -!-!-! 
+def format_message(data, mtype: MessageType):
+    message = '❌❌❌ ALERT - Error occurred ❌❌❌' if mtype == MessageType.ERROR else ' ℹ️ ℹ️ ℹ️ ALERT - Information ℹ️ ℹ️ ℹ️'
+    message = f'''{message} 
 
     {data}
     '''
