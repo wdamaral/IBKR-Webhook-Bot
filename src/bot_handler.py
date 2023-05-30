@@ -1,6 +1,6 @@
 from sanic import Sanic
 from telegram.ext import Application, CommandHandler
-from ib_insync import IB, Trade
+from ib_insync import IB, PortfolioItem, Trade
 from models.MessageType import MessageType
 from models.TradingViewOrder import TradingViewOrder
 import settings
@@ -10,7 +10,7 @@ from telegram.ext import (
     CallbackQueryHandler
 )
 from datetime import tzinfo
-from ibkr_handler import close_existing_position, connect, positions
+from ibkr_handler import close_existing_position, connect, portfolio, positions
 from settings import *
 from ib_insync import util
 
@@ -116,17 +116,21 @@ async def get_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if (update.effective_user.id == settings.channel_id):
         app = Sanic.get_app()
 
-        pos = await positions(app.ctx.ib)
+        port = await portfolio(app.ctx.ib)
 
-        if len(pos) > 0:
+        if len(port) > 0:
+            finalpnl = 0
             message = 'See below your current positions.'
-            for i in pos:
+            for i in port:
                 message = message + f'''
                 _____________________
                 Account: {i.account},
                 Symbol: {i.contract.localSymbol}
                 Position: {i.position}
-                AvgCost: {i.avgCost}
+                AvgCost: {i.averageCost}
+                MktPrice: {i.marketPrice}
+                Unrealized PL: {i.unrealizedPNL}
+                Realized PL: {i.realizedPNL}
                 _____________________
                 '''
         else:
@@ -167,7 +171,7 @@ async def close_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
             if len(pos) > 0:
                 for p in pos:
-                    result = close_existing_position(app.ctx.ib, p)
+                    result = await close_existing_position(app.ctx.ib, p)
 
                     if result == True:
                         message = f'Request to close position in {p.contract.localSymbol} sent.'
@@ -181,13 +185,27 @@ async def close_positions(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await query.edit_message_text(text=f'No problem! Rest assured nothing will be done.')
 
 
+async def disconnect_api(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if (update.effective_user.id == settings.channel_id):
+        app = Sanic.get_app()
+        await update.message.reply_text('Ok! API will be disconnected.')
+
+        try:
+            app.ctx.ib.disconnect()
+
+            await update.message.reply_text('Done! API disconnected.')
+        except:
+            await update.message.reply_text('Oops... It failed to disconnect.')
+
+
 async def start_bot(app: Sanic):
     if settings.enable_telegram:
         app.ctx.bot = Application.builder().token(telegram_token).build()
         app.ctx.bot.add_handler(CommandHandler("start", start))
         app.ctx.bot.add_handler(CommandHandler("healthcheck", reconnect))
+        app.ctx.bot.add_handler(CommandHandler("disconnect", disconnect_api))
         app.ctx.bot.add_handler(CommandHandler('panic', panic))
-        app.ctx.bot.add_handler(CallbackQueryHandler(close_positions,))
+        app.ctx.bot.add_handler(CallbackQueryHandler(close_positions))
         app.ctx.bot.add_handler(CommandHandler('openpositions', get_positions))
         await app.ctx.bot.initialize()
         await app.ctx.bot.updater.start_polling()

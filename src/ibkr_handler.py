@@ -1,5 +1,5 @@
 import asyncio
-from ib_insync import IB, MarketOrder, Position, TagValue, Trade
+from ib_insync import IB, Contract, MarketOrder, Position, TagValue, Trade
 from sanic.log import logger
 from ibkr_events import alert_cancellation, alert_confirmation
 from settings import *
@@ -9,8 +9,13 @@ from ib_insync import util
 async def positions(_ib: IB):
     pos = _ib.positions()
 
-    print(util.tree(pos))
     return pos
+
+
+async def portfolio(_ib: IB):
+    port = _ib.portfolio()
+
+    return port
 
 
 async def checkConnect(_ib: IB):
@@ -40,7 +45,7 @@ async def connect(_ib: IB):
     return {'Connected': status}
 
 
-def close_existing_position(_ib: IB, position: Position):
+async def close_existing_position(_ib: IB, position: Position):
     order = MarketOrder(
         action='SELL' if position.position > 0 else 'BUY',
         totalQuantity=position.position,
@@ -48,8 +53,15 @@ def close_existing_position(_ib: IB, position: Position):
         algoStrategy='Adaptive',
         algoParams=[TagValue('adaptivePriority', 'Normal')])
     try:
+        ctr = Contract(exchange=__getExchange(position.contract.secType),
+                       symbol=position.contract.symbol, secType=position.contract.secType, currency=position.contract.currency)
+        contract = await _ib.qualifyContractsAsync(ctr)
+
+        if (len(contract) != 1):
+            return 'Ambiguous contract or inexistent.'
+
         ib_order: Trade = _ib.placeOrder(
-            position.contract,
+            contract[0],
             order)
 
         ib_order.filledEvent += alert_confirmation
@@ -69,3 +81,11 @@ async def isConnected(_ib: IB):
     if not _ib.isConnected() or not _ib.client.isConnected():
         connected = False
     return connected
+
+
+def __getExchange(ctrType: str) -> str:
+    if (ctrType == 'STK'):
+        return 'SMART'
+
+    if (ctrType == 'Future'):
+        return 'CME'

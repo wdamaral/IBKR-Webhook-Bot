@@ -11,7 +11,8 @@ from ib_insync import (
 from sanic.response import json
 from sanic.log import logger
 from sanic_ext import validate
-from sanic import Blueprint
+from sanic import Blueprint, Sanic
+from auth import authorized
 from bot_handler import (
     send_alert,
     start_bot,
@@ -25,32 +26,7 @@ from sanic.log import logger
 from sanic_ext import validate
 from settings import *
 
-from secret_hash import compareSecret
-
 bp = Blueprint("api")
-
-
-def authorized(maybe_func=None, *, isAdmin=False):
-    def decorator(f):
-        @wraps(f)
-        async def decorated_function(request, *args, **kwargs):
-            try:
-                reqBody = request.json
-
-                is_authorized = compareSecret(reqBody.get('secret'), isAdmin)
-
-                if is_authorized:
-                    response = f(request, *args, **kwargs)
-                    if isawaitable(response):
-                        response = await response
-
-                    return response
-                else:
-                    return json({"status": "not_authorized"}, 403)
-            except:
-                return json({"status": "not_authorized"}, 403)
-        return decorated_function
-    return decorator(maybe_func) if maybe_func else decorator
 
 
 @bp.route('/webhook', methods=['POST'])
@@ -59,8 +35,8 @@ def authorized(maybe_func=None, *, isAdmin=False):
 async def webhook(request, body: TradingViewOrder):
     if request.method == 'POST':
         # send alert to channels
-        _ib = bp.apps[0].ctx.ib
-        _bot = bp.apps[0].ctx.bot
+        _ib = request.app.ctx.ib
+        _bot = request.app.ctx.bot
 
         await send_alert(_bot, body, MessageType.TRADINGVIEW)
 
